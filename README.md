@@ -54,7 +54,9 @@ Same request/response shape as OpenAI's `/v1/chat/completions` — this is a dro
 
 **Regression detection** compares the recent eval-score window against a trailing baseline with a z-test rather than a fixed cutoff, so it catches drift relative to what's actually normal for your deployment — falls back to a fixed floor automatically until there's enough history.
 
-**Model migration decisions:** `go run ./cmd/replay --candidate-model <model> --limit 5` replays recent real prompts through a candidate model and scores both the original and candidate responses side by side — an actual answer to "should we switch models," not a guess.
+**Model migration decisions:** replay recent real prompts through a candidate model and see both the original and candidate scored side by side, from the dashboard at `/replay` or `go run ./cmd/replay --candidate-model <model> --limit 5` from the CLI — same underlying logic either way, an actual answer to "should we switch models," not a guess.
+
+**Provider health:** the dashboard at `/providers` shows live circuit-breaker state and measured latency for every configured provider — which one is actually serving traffic, whether one has failed over, and why.
 
 **Guardrails:** every stored prompt/response is scanned for recognizable PII/secrets (email, credit card, SSN, phone, common API-key prefixes) and redacted before it hits the database — the live call to the actual provider is never touched, only what Verigate logs. Prompts also get a heuristic 0-1 injection-risk score (`injection_score` on each request) from pattern matching against common jailbreak/override phrasing.
 
@@ -77,9 +79,13 @@ go test ./...
 
 Covers: statistical regression detection and tenant creation/lookup (real integration tests against local Postgres), the Anthropic request/response/streaming translation (against a mock server shaped like Anthropic's real API), semantic caching (pure cosine-similarity/index logic, plus full `Cache`-level plumbing against a mock embeddings server and real local Redis), cache-key normalization (streaming and non-streaming requests sharing an entry), the circuit breaker/fallback chain including dynamic latency-based reordering (using controllable fake providers, no external keys needed), guardrails (PII redaction patterns, injection-risk scoring), and the multi-tenant auth/rate-limit middleware (fake tenant lookup, no DB needed).
 
+## Dashboard pages
+
+`/` (requests, eval trend, regression status), `/tenants` (create/list tenants), `/replay` (model-migration comparisons), `/providers` (live circuit-breaker/latency state) — all backed by real endpoints, no mock data.
+
 ## What's here vs. what's next
 
-This is a real, running system: a gateway with exact-match + semantic caching shared across streaming and non-streaming traffic; request logging with PII redaction and injection-risk scoring; async LLM-judge evaluation with statistical regression detection and tool-call grading; a live dashboard; real OTel instrumentation; two genuinely different provider adapters (OpenAI-compatible and Anthropic) automatically chained behind a circuit breaker with dynamic latency-based reordering when both are configured; per-tenant API keys, rate limits, and scoped dashboard queries; and a replay/diff tool for model-migration decisions.
+This is a real, running system: a gateway with exact-match + semantic caching shared across streaming and non-streaming traffic; request logging with PII redaction and injection-risk scoring; async LLM-judge evaluation with statistical regression detection and tool-call grading; a live dashboard across four pages; real OTel instrumentation; two genuinely different provider adapters (OpenAI-compatible and Anthropic) automatically chained behind a circuit breaker with dynamic latency-based reordering when both are configured; per-tenant API keys, rate limits, and scoped dashboard queries; and a replay/diff tool for model-migration decisions, usable from the CLI or the dashboard.
 
 Honest gaps worth knowing about: **live verification of the Anthropic adapter and semantic caching used mocks / a deliberately-invalid key, not a real Anthropic API key or a real embeddings key** (neither configured in the environment this was built in) — the logic is tested and correct, including a live test of the fallback *path* using a genuine invalid-key failure against the real Anthropic API, but a real Anthropic response has not been observed. Streaming tool-call capture isn't implemented (OpenAI's streaming format sends function-call fragments incrementally — reassembling them is real, separate work from the non-streaming case, which is done). Tool-call grading works from the judge's general knowledge, not the tool's formal JSON schema (Verigate doesn't currently capture the `tools` array from the request). Full roadmap and verification detail for every feature: `docs/ARCHITECTURE.md` §10.
 

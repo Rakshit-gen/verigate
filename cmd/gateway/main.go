@@ -82,6 +82,7 @@ func main() {
 		Store:    st,
 		Cache:    rc,
 		Provider: chatProvider,
+		Judge:    judge,
 		Sampler:  sampler,
 		Otel:     otelProviders,
 	})

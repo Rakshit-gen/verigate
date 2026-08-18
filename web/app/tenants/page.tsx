@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import useSWR from "swr";
 import { fetchTenants } from "@/lib/api";
 import CreateTenantForm from "@/components/CreateTenantForm";
 import TenantsTable from "@/components/TenantsTable";
+import Nav from "@/components/Nav";
 
 export default function TenantsPage() {
   const { data: tenants, mutate } = useSWR("tenants", fetchTenants);
@@ -20,9 +20,7 @@ export default function TenantsPage() {
             Per-tenant API keys and rate limits — each key is independent, none can starve another.
           </p>
         </div>
-        <Link href="/" className="text-xs text-slate-500 hover:text-teal-300">
-          ← Dashboard
-        </Link>
+        <Nav />
       </header>
 
       <section className="mb-8">

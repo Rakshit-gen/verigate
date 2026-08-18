@@ -158,6 +158,53 @@ func (r *Router) Name() string {
 	return r.chain[0].provider.Name()
 }
 
+// EntryStatus is a point-in-time snapshot of one chain entry — what a
+// dashboard needs to answer "which provider is actually serving traffic
+// right now, and why."
+type EntryStatus struct {
+	Name                string  `json:"name"`
+	DeclaredOrder       int     `json:"declared_order"`
+	BreakerState        string  `json:"breaker_state"` // "closed" | "open" | "half_open"
+	ConsecutiveFailures int     `json:"consecutive_failures"`
+	MeasuredLatencyMS   float64 `json:"measured_latency_ms"` // 0 = no successful call recorded yet
+}
+
+// Status reports every chain entry's current breaker state and measured
+// latency, in declared order — this is the only place that state is
+// observable from outside the package, since chainEntry/circuitBreaker are
+// both unexported.
+func (r *Router) Status() []EntryStatus {
+	out := make([]EntryStatus, 0, len(r.chain))
+	for _, e := range r.chain {
+		e.breaker.mu.Lock()
+		state := e.breaker.state
+		failures := e.breaker.consecutiveFailures
+		e.breaker.mu.Unlock()
+
+		out = append(out, EntryStatus{
+			Name:                e.provider.Name(),
+			DeclaredOrder:       e.declaredOrder,
+			BreakerState:        state.String(),
+			ConsecutiveFailures: failures,
+			MeasuredLatencyMS:   e.latency.Value(),
+		})
+	}
+	return out
+}
+
+func (s breakerState) String() string {
+	switch s {
+	case closed:
+		return "closed"
+	case open:
+		return "open"
+	case halfOpen:
+		return "half_open"
+	default:
+		return "unknown"
+	}
+}
+
 // attemptOrder returns the chain entries currently allowed to be tried,
 // sorted fastest-measured-first (untested entries sort as fastest, per
 // latencyTracker's zero-value semantics), falling back to declared order

@@ -21,6 +21,7 @@ import (
 	"github.com/rakshit-gen/verigate/internal/guardrails"
 	"github.com/rakshit-gen/verigate/internal/otelx"
 	"github.com/rakshit-gen/verigate/internal/provider"
+	"github.com/rakshit-gen/verigate/internal/replay"
 	"github.com/rakshit-gen/verigate/internal/store"
 )
 
@@ -29,6 +30,7 @@ type Deps struct {
 	Store    *store.Store
 	Cache    *cache.Cache
 	Provider provider.Provider
+	Judge    *eval.Judge
 	Sampler  *eval.Sampler
 	Otel     *otelx.Providers
 }
@@ -60,6 +62,8 @@ func New(d Deps) http.Handler {
 		ar.Get("/evals/recent", handleRecentEvals(d))
 		ar.Get("/tenants", handleListTenants(d))
 		ar.Post("/tenants", handleCreateTenant(d))
+		ar.Get("/providers", handleProviderStatus(d))
+		ar.Post("/replay", handleReplay(d))
 	})
 
 	return r
@@ -336,6 +340,85 @@ func handleCreateTenant(d Deps) http.HandlerFunc {
 			"created_at":     tenant.CreatedAt,
 			"api_key":        apiKey,
 		})
+	}
+}
+
+// handleProviderStatus reports which provider(s) are actually configured
+// and, when it's a fallback chain, each entry's live breaker state and
+// measured latency — otherwise there is no visibility at all into which
+// provider is serving traffic or why one might have failed over.
+func handleProviderStatus(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if chainRouter, ok := d.Provider.(*provider.Router); ok {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"mode":      "chain",
+				"providers": chainRouter.Status(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"mode": "single",
+			"providers": []provider.EntryStatus{
+				{Name: d.Provider.Name(), BreakerState: "closed"},
+			},
+		})
+	}
+}
+
+// handleReplay is the HTTP front end for internal/replay — same logic
+// cmd/replay uses, synchronous because this is a low-traffic admin
+// operation (a handful of judge calls, a few seconds), not something that
+// needs a job queue at today's scale. limit is capped to keep one request
+// from accidentally kicking off dozens of judge calls.
+func handleReplay(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			RequestID      string `json:"request_id"`
+			Limit          int    `json:"limit"`
+			CandidateModel string `json:"candidate_model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		if body.CandidateModel == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "candidate_model is required"})
+			return
+		}
+		if body.Limit <= 0 {
+			body.Limit = 3
+		}
+		if body.Limit > 10 {
+			body.Limit = 10
+		}
+
+		targets, err := replay.SelectTargets(r.Context(), d.Store, body.RequestID, body.Limit)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if len(targets) == 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"results": []replay.Result{}, "skipped": []string{}})
+			return
+		}
+
+		var results []replay.Result
+		var skipped []string
+		for _, target := range targets {
+			res, err := replay.One(r.Context(), d.Provider, d.Judge, target, body.CandidateModel)
+			if err != nil {
+				skipped = append(skipped, err.Error())
+				continue
+			}
+			results = append(results, res)
+		}
+		if results == nil {
+			results = []replay.Result{}
+		}
+		if skipped == nil {
+			skipped = []string{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"results": results, "skipped": skipped})
 	}
 }
 

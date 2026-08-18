@@ -48,6 +48,32 @@ export type Tenant = {
 
 export type CreatedTenant = Tenant & { api_key: string };
 
+export type ProviderEntryStatus = {
+  name: string;
+  declared_order: number;
+  breaker_state: "closed" | "open" | "half_open";
+  consecutive_failures: number;
+  measured_latency_ms: number;
+};
+
+export type ProviderStatusResponse = {
+  mode: "single" | "chain";
+  providers: ProviderEntryStatus[];
+};
+
+export type ReplayResult = {
+  prompt: string;
+  original_model: string;
+  candidate_model: string;
+  original_scores: Record<string, number>;
+  candidate_scores: Record<string, number>;
+};
+
+export type ReplayResponse = {
+  results: ReplayResult[];
+  skipped: string[];
+};
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -75,3 +101,10 @@ export const fetchRecentEvals = () => get<EvalRecord[]>("/api/evals/recent");
 export const fetchTenants = () => get<Tenant[]>("/api/tenants");
 export const createTenant = (name: string, rateLimitRPM: number) =>
   post<CreatedTenant>("/api/tenants", { name, rate_limit_rpm: rateLimitRPM });
+export const fetchProviderStatus = () => get<ProviderStatusResponse>("/api/providers");
+export const runReplay = (candidateModel: string, limit: number, requestId?: string) =>
+  post<ReplayResponse>("/api/replay", {
+    candidate_model: candidateModel,
+    limit,
+    request_id: requestId ?? "",
+  });

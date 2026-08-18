@@ -4,6 +4,52 @@ function truncate(s: string, max = 60) {
   return s.length > max ? s.slice(0, max) + "…" : s;
 }
 
+function toolCallNames(toolCallsJSON: string): string[] {
+  if (!toolCallsJSON) return [];
+  try {
+    const calls = JSON.parse(toolCallsJSON) as Array<{ function?: { name?: string } }>;
+    return calls.map((c) => c.function?.name).filter((n): n is string => Boolean(n));
+  } catch {
+    return [];
+  }
+}
+
+function Flags({ r }: { r: RequestRecord }) {
+  const names = toolCallNames(r.tool_calls);
+  const badges: React.ReactNode[] = [];
+
+  if (r.pii_redacted) {
+    badges.push(
+      <span key="pii" title="PII/secrets redacted before storage" className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-xs text-indigo-300">
+        PII redacted
+      </span>
+    );
+  }
+  if (r.injection_score >= 0.5) {
+    badges.push(
+      <span key="inj" title={`Injection-risk score ${r.injection_score.toFixed(2)}`} className="rounded-full bg-red-500/15 px-2 py-0.5 text-xs text-red-300">
+        injection risk {r.injection_score.toFixed(2)}
+      </span>
+    );
+  } else if (r.injection_score > 0) {
+    badges.push(
+      <span key="inj" title={`Injection-risk score ${r.injection_score.toFixed(2)}`} className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300">
+        injection {r.injection_score.toFixed(2)}
+      </span>
+    );
+  }
+  for (const name of names) {
+    badges.push(
+      <span key={"tool-" + name} className="rounded-full bg-teal-500/15 px-2 py-0.5 font-mono text-xs text-teal-300">
+        🔧 {name}
+      </span>
+    );
+  }
+
+  if (badges.length === 0) return <span className="text-xs text-slate-700">—</span>;
+  return <div className="flex flex-wrap gap-1">{badges}</div>;
+}
+
 export default function RequestsTable({ requests }: { requests: RequestRecord[] }) {
   if (requests.length === 0) {
     return (
@@ -23,6 +69,7 @@ export default function RequestsTable({ requests }: { requests: RequestRecord[] 
             <th className="px-4 py-2 font-medium">Time</th>
             <th className="px-4 py-2 font-medium">Model</th>
             <th className="px-4 py-2 font-medium">Prompt</th>
+            <th className="px-4 py-2 font-medium">Flags</th>
             <th className="px-4 py-2 font-medium text-right">Latency</th>
             <th className="px-4 py-2 font-medium text-center">Cache</th>
             <th className="px-4 py-2 font-medium text-right">Tokens</th>
@@ -38,6 +85,9 @@ export default function RequestsTable({ requests }: { requests: RequestRecord[] 
               </td>
               <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-teal-300">{r.model}</td>
               <td className="px-4 py-2 text-slate-300">{truncate(r.prompt)}</td>
+              <td className="px-4 py-2">
+                <Flags r={r} />
+              </td>
               <td className="whitespace-nowrap px-4 py-2 text-right font-mono text-xs tabular-nums text-slate-400">
                 {r.latency_ms}ms
               </td>
