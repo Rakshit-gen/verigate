@@ -51,11 +51,15 @@ func New(d Deps) http.Handler {
 
 	// Dashboard read API. Unauthenticated tonight — this is a local-only
 	// demo surface, not a route real client traffic ever hits. Add auth
-	// here before deploying anywhere reachable off localhost.
+	// here before deploying anywhere reachable off localhost — tenant
+	// creation in particular is an admin operation and must not stay
+	// open once this is reachable off localhost.
 	r.Route("/api", func(ar chi.Router) {
 		ar.Get("/requests", handleListRequests(d))
 		ar.Get("/evals/summary", handleEvalSummary(d))
 		ar.Get("/evals/recent", handleRecentEvals(d))
+		ar.Get("/tenants", handleListTenants(d))
+		ar.Post("/tenants", handleCreateTenant(d))
 	})
 
 	return r
@@ -280,6 +284,58 @@ func handleRecentEvals(d Deps) http.HandlerFunc {
 			evals = []store.EvalRecord{}
 		}
 		writeJSON(w, http.StatusOK, evals)
+	}
+}
+
+func handleListTenants(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tenants, err := d.Store.ListTenants(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if tenants == nil {
+			tenants = []store.Tenant{}
+		}
+		writeJSON(w, http.StatusOK, tenants)
+	}
+}
+
+// handleCreateTenant is the ONLY place the plaintext API key is ever
+// visible after creation — the response includes it once, the same
+// "shown once, save it now" contract as the CLI (cmd/tenant). Nothing
+// else, including this same dashboard, can ever retrieve it again.
+func handleCreateTenant(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name         string `json:"name"`
+			RateLimitRPM int    `json:"rate_limit_rpm"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		if body.Name == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+			return
+		}
+		if body.RateLimitRPM <= 0 {
+			body.RateLimitRPM = 60
+		}
+
+		tenant, apiKey, err := d.Store.CreateTenant(r.Context(), body.Name, body.RateLimitRPM)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"id":             tenant.ID,
+			"name":           tenant.Name,
+			"rate_limit_rpm": tenant.RateLimitRPM,
+			"created_at":     tenant.CreatedAt,
+			"api_key":        apiKey,
+		})
 	}
 }
 

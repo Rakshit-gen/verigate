@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import useSWR from "swr";
 import { fetchRequests, fetchEvalSummary, fetchRecentEvals } from "@/lib/api";
 import RegressionBanner from "@/components/RegressionBanner";
@@ -24,7 +25,12 @@ export default function DashboardPage() {
             An LLM gateway that grades its own traffic as it flows through.
           </p>
         </div>
-        <span className="font-mono text-xs text-slate-600">localhost:8080</span>
+        <div className="flex items-center gap-4">
+          <Link href="/tenants" className="text-xs text-slate-500 hover:text-teal-300">
+            Tenants
+          </Link>
+          <span className="font-mono text-xs text-slate-600">localhost:8080</span>
+        </div>
       </header>
 
       <section className="mb-6">
