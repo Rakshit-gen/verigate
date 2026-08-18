@@ -1,0 +1,16 @@
+# Go
+/verigate
+*.exe
+
+# env
+.env
+.env.local
+
+# frontend
+web/node_modules/
+web/.next/
+web/.env*.local
+
+# misc
+.DS_Store
+*.log
