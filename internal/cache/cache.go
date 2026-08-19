@@ -26,9 +26,18 @@ type Cache struct {
 	semanticMin float64
 }
 
+// New accepts either a bare "host:port" (local dev, REDIS_ADDR default) or a
+// full redis:// / rediss:// URL (managed providers like Render's Key Value,
+// whose connection string carries auth and, for external connections, TLS)
+// — falls back to treating addr as a bare address if it isn't a valid URL,
+// so existing REDIS_ADDR=localhost:6379 setups are unaffected.
 func New(addr string) *Cache {
+	opts, err := redis.ParseURL(addr)
+	if err != nil {
+		opts = &redis.Options{Addr: addr}
+	}
 	return &Cache{
-		rdb: redis.NewClient(&redis.Options{Addr: addr}),
+		rdb: redis.NewClient(opts),
 		ttl: 15 * time.Minute,
 	}
 }

@@ -1,0 +1,49 @@
+databases:
+  - name: verigate-db
+    plan: free
+    databaseName: verigate
+    user: verigate
+
+services:
+  - type: keyvalue
+    name: verigate-redis
+    plan: free
+    ipAllowList: []
+
+  - type: web
+    name: verigate-gateway
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /healthz
+    # Migrations are plain idempotent SQL (CREATE TABLE/ADD COLUMN IF NOT
+    # EXISTS), so re-running the full set on every deploy is safe.
+    preDeployCommand: 'for f in migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done'
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: verigate-db
+          property: connectionString
+      - key: REDIS_ADDR
+        fromService:
+          type: keyvalue
+          name: verigate-redis
+          property: connectionString
+      - key: VERIGATE_API_KEY
+        generateValue: true
+      - key: PROVIDER_NAME
+        value: groq
+      - key: OPENAI_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: JUDGE_MODEL
+        value: openai/gpt-oss-120b
+      - key: CHAT_MODEL_DEFAULT
+        value: openai/gpt-oss-20b
+      # Secrets — set these in the Render dashboard after the first deploy,
+      # not here (sync: false keeps the Blueprint from ever wanting a value
+      # for them, so they're never written to render.yaml or git).
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
