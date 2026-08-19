@@ -17,9 +17,8 @@ services:
     dockerContext: .
     plan: free
     healthCheckPath: /healthz
-    # Migrations are plain idempotent SQL (CREATE TABLE/ADD COLUMN IF NOT
-    # EXISTS), so re-running the full set on every deploy is safe.
-    preDeployCommand: 'for f in migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done'
+    # Migrations run from docker-entrypoint.sh on container start, not a
+    # preDeployCommand — free-tier services can't use preDeployCommand.
     envVars:
       - key: DATABASE_URL
         fromDatabase:
