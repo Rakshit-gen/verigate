@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -82,18 +83,45 @@ func nullableUUID(id string) any {
 	return id
 }
 
-// ListRequests, when tenantID is "", returns requests across ALL tenants
-// (the default dashboard view / single-tenant mode). Pass a specific
-// tenant ID to scope the view to just that tenant's traffic.
-func (s *Store) ListRequests(ctx context.Context, tenantID string, limit int) ([]RequestRecord, error) {
-	rows, err := s.pool.Query(ctx, `
+// Scope controls which tenant's rows a dashboard read returns:
+//   - All=true (resolved from the operator's admin key) bypasses filtering
+//     entirely — full visibility, and the only mode that may still combine
+//     with an explicit TenantID to inspect one tenant.
+//   - TenantID set (resolved from a tenant API key or a session token)
+//     restricts to that tenant's own rows, regardless of anything a caller
+//     might otherwise request — this is what makes a signed-in user's
+//     dashboard see only their own data.
+//   - The zero value (All=false, TenantID="") restricts to tenant_id IS
+//     NULL — the public demo/seed traffic an anonymous visitor sees, same
+//     as today's default single-tenant deployment.
+type Scope struct {
+	All      bool
+	TenantID string
+}
+
+// scopeFilter is the WHERE-clause fragment shared by every tenant-scoped
+// dashboard query. tenantCol is the (possibly table-qualified) tenant_id
+// column being filtered, e.g. "tenant_id" or "r.tenant_id". argOffset lets
+// callers place the two scope args ($all, $tenantID) after other
+// positional args already in use.
+func scopeFilter(tenantCol string, argOffset int) string {
+	return fmt.Sprintf(`(
+		$%d::bool
+		OR ($%d <> '' AND %s::text = $%d)
+		OR ($%d = '' AND NOT $%d::bool AND %s IS NULL)
+	)`, argOffset, argOffset+1, tenantCol, argOffset+1, argOffset+1, argOffset, tenantCol)
+}
+
+func (s *Store) ListRequests(ctx context.Context, scope Scope, limit int) ([]RequestRecord, error) {
+	query := fmt.Sprintf(`
 		SELECT id, created_at, provider, model, prompt, response, latency_ms, cache_hit,
 		       COALESCE(tokens_in,0), COALESCE(tokens_out,0), COALESCE(cost_usd,0), status,
 		       pii_redacted, injection_score, tool_calls, COALESCE(tenant_id::text, '')
 		FROM requests
-		WHERE ($1 = '' OR tenant_id::text = $1)
-		ORDER BY created_at DESC LIMIT $2
-	`, tenantID, limit)
+		WHERE %s
+		ORDER BY created_at DESC LIMIT $3
+	`, scopeFilter("tenant_id", 1))
+	rows, err := s.pool.Query(ctx, query, scope.All, scope.TenantID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -144,11 +172,15 @@ func (s *Store) InsertEval(ctx context.Context, e EvalRecord) error {
 	return err
 }
 
-func (s *Store) RecentEvals(ctx context.Context, limit int) ([]EvalRecord, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, request_id, rubric, score, COALESCE(reasoning,''), created_at
-		FROM evals ORDER BY created_at DESC LIMIT $1
-	`, limit)
+func (s *Store) RecentEvals(ctx context.Context, scope Scope, limit int) ([]EvalRecord, error) {
+	// evals has no tenant_id of its own — scope via the request it graded.
+	query := fmt.Sprintf(`
+		SELECT e.id, e.request_id, e.rubric, e.score, COALESCE(e.reasoning,''), e.created_at
+		FROM evals e JOIN requests r ON r.id = e.request_id
+		WHERE %s
+		ORDER BY e.created_at DESC LIMIT $3
+	`, scopeFilter("r.tenant_id", 1))
+	rows, err := s.pool.Query(ctx, query, scope.All, scope.TenantID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -197,15 +229,18 @@ type EvalSummary struct {
 // rubric, when non-empty, scopes the whole comparison to one rubric (e.g.
 // "groundedness") rather than mixing every rubric's scores into one
 // average — pass "" for the all-rubrics dashboard summary.
-func (s *Store) RegressionSummary(ctx context.Context, rubric string, recentWindow, baselineWindow int, zThreshold, bootstrapMinScore float64) (EvalSummary, error) {
+func (s *Store) RegressionSummary(ctx context.Context, scope Scope, rubric string, recentWindow, baselineWindow int, zThreshold, bootstrapMinScore float64) (EvalSummary, error) {
 	const bootstrapMinBaseline = 10
 
-	var sum EvalSummary
-	err := s.pool.QueryRow(ctx, `
+	// evals has no tenant_id of its own — scope via the request it graded.
+	filter := fmt.Sprintf(`($3 = '' OR e.rubric = $3) AND %s`, scopeFilter("r.tenant_id", 4))
+	query := fmt.Sprintf(`
 		WITH recent AS (
-			SELECT score FROM evals WHERE ($3 = '' OR rubric = $3) ORDER BY created_at DESC LIMIT $1
+			SELECT e.score FROM evals e JOIN requests r ON r.id = e.request_id
+			WHERE %s ORDER BY e.created_at DESC LIMIT $1
 		), baseline AS (
-			SELECT score FROM evals WHERE ($3 = '' OR rubric = $3) ORDER BY created_at DESC OFFSET $1 LIMIT $2
+			SELECT e.score FROM evals e JOIN requests r ON r.id = e.request_id
+			WHERE %s ORDER BY e.created_at DESC OFFSET $1 LIMIT $2
 		)
 		SELECT
 			(SELECT COALESCE(AVG(score), 1.0) FROM recent),
@@ -213,7 +248,10 @@ func (s *Store) RegressionSummary(ctx context.Context, rubric string, recentWind
 			(SELECT COALESCE(AVG(score), 1.0) FROM baseline),
 			(SELECT COALESCE(STDDEV(score), 0) FROM baseline),
 			(SELECT COUNT(*) FROM baseline)
-	`, recentWindow, baselineWindow, rubric).Scan(
+	`, filter, filter)
+
+	var sum EvalSummary
+	err := s.pool.QueryRow(ctx, query, recentWindow, baselineWindow, rubric, scope.All, scope.TenantID).Scan(
 		&sum.RollingAvgScore, &sum.SampleCount,
 		&sum.BaselineAvg, &sum.BaselineStddev, &sum.BaselineCount,
 	)

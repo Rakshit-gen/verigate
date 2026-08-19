@@ -37,7 +37,7 @@ func SelectTargets(ctx context.Context, st *store.Store, requestID string, limit
 		return []store.RequestRecord{*r}, nil
 	}
 
-	all, err := st.ListRequests(ctx, "", 200) // "" = across all tenants; over-fetch, then filter down to eligible ones below
+	all, err := st.ListRequests(ctx, store.Scope{All: true}, 200) // admin operation — over-fetch across all tenants, then filter down to eligible ones below
 	if err != nil {
 		return nil, fmt.Errorf("failed to list requests: %w", err)
 	}

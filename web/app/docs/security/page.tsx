@@ -30,10 +30,24 @@ export default function SecurityPage() {
       <P>
         Each tenant gets an independent API key and rate limit. Keys are generated as{" "}
         <IC>vg_&lt;64 hex chars&gt;</IC>, and only their SHA-256 hash is ever persisted — the plaintext is shown
-        exactly once, at creation, with no way to recover it later.
+        exactly once, at creation, with no way to recover it later (a lost key can be replaced from the dashboard,
+        which invalidates the old one).
       </P>
-      <CodeBlock lang="bash" code={`go run ./cmd/tenant create --name acme --rpm 60`} />
-      <P>Or from the dashboard at <IC>/tenants</IC> — same underlying endpoint either way.</P>
+      <P>Three ways to get a tenant + key:</P>
+      <UL>
+        <LI>
+          Self-serve at <IC>/signup</IC> (email + password) — creates a user, an owned tenant, and a logged-in
+          session together. This is how everyone other than the operator should get a key.
+        </LI>
+        <LI>
+          The operator&apos;s dashboard at <IC>/tenants</IC>, gated behind <IC>VERIGATE_API_KEY</IC> — for manual/ad
+          hoc tenants.
+        </LI>
+        <LI>
+          <CodeBlock lang="bash" code={`go run ./cmd/tenant create --name acme --rpm 60`} /> — same admin-only path,
+          from the CLI.
+        </LI>
+      </UL>
 
       <P>
         Rate limiting is a token bucket per tenant (<IC>golang.org/x/time/rate</IC>), sized to that tenant&apos;s own
@@ -42,18 +56,22 @@ export default function SecurityPage() {
         the operator&apos;s own key, not a customer&apos;s.
       </P>
 
-      <H2>What&apos;s tenant-scoped today</H2>
-      <UL>
-        <LI>
-          <IC>GET /api/requests?tenant_id=&lt;id&gt;</IC> — scoped.
-        </LI>
-        <LI>Eval summary and recent evals — not yet tenant-scoped; they report across all tenants.</LI>
-      </UL>
+      <H2>Dashboard scoping</H2>
+      <P>
+        <IC>GET /api/requests</IC>, <IC>/api/evals/summary</IC>, <IC>/api/evals/recent</IC>, and{" "}
+        <IC>/api/tenants</IC> resolve <em className="not-italic">who&apos;s calling</em> from the{" "}
+        <IC>Authorization</IC> header — a tenant API key or a session token from <IC>/login</IC> — and force the
+        response to that caller&apos;s own tenant only, regardless of any <IC>tenant_id</IC> query param passed in. A
+        request with no <IC>Authorization</IC> header sees only this deployment&apos;s own public demo traffic
+        (rows with no tenant at all) — that&apos;s what powers the logged-out <IC>/dashboard</IC> anyone visiting
+        this site sees. The operator&apos;s <IC>VERIGATE_API_KEY</IC> is the only identity with unscoped, full
+        visibility, and the only one that may still target an arbitrary <IC>tenant_id</IC> explicitly.
+      </P>
 
       <Callout>
-        The dashboard&apos;s <IC>/api</IC> routes are unauthenticated by design — a local-only demo surface, not a route
-        real client traffic hits. Tenant creation in particular is an admin operation: add auth there before deploying
-        anywhere reachable off localhost.
+        Write/admin operations — creating a tenant manually and triggering a replay run, which spends real provider
+        credits — require <IC>VERIGATE_API_KEY</IC> specifically, never a tenant key or session token. Self-serve
+        signup bypasses this by calling the store layer directly rather than going through that admin route.
       </Callout>
     </article>
   );

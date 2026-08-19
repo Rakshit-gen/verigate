@@ -62,7 +62,7 @@ func TestRegressionSummary_FlagsARealDrop(t *testing.T) {
 	recentReq := seedRequestWithEvals(t, ctx, s, "test-drop", 5, 0.55)
 	defer s.pool.Exec(ctx, "DELETE FROM requests WHERE id = $1", recentReq)
 
-	sum, err := s.RegressionSummary(ctx, "test-drop", 5, 15, 2.0, 0.6)
+	sum, err := s.RegressionSummary(ctx, Scope{All: true}, "test-drop", 5, 15, 2.0, 0.6)
 	if err != nil {
 		t.Fatalf("RegressionSummary: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestRegressionSummary_StableHistoryNotFlagged(t *testing.T) {
 	recentReq := seedRequestWithEvals(t, ctx, s, "test-stable", 5, 0.82) // noise-level difference, not a regression
 	defer s.pool.Exec(ctx, "DELETE FROM requests WHERE id = $1", recentReq)
 
-	sum, err := s.RegressionSummary(ctx, "test-stable", 5, 15, 2.0, 0.6)
+	sum, err := s.RegressionSummary(ctx, Scope{All: true}, "test-stable", 5, 15, 2.0, 0.6)
 	if err != nil {
 		t.Fatalf("RegressionSummary: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestRegressionSummary_BootstrapFallbackOnColdStart(t *testing.T) {
 	reqID := seedRequestWithEvals(t, ctx, s, "test-bootstrap", 3, 0.55)
 	defer s.pool.Exec(ctx, "DELETE FROM requests WHERE id = $1", reqID)
 
-	sum, err := s.RegressionSummary(ctx, "test-bootstrap", 5, 15, 2.0, 0.6)
+	sum, err := s.RegressionSummary(ctx, Scope{All: true}, "test-bootstrap", 5, 15, 2.0, 0.6)
 	if err != nil {
 		t.Fatalf("RegressionSummary: %v", err)
 	}

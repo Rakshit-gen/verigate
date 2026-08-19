@@ -3,9 +3,11 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -51,19 +53,38 @@ func New(d Deps) http.Handler {
 		gr.Post("/v1/chat/completions", handleChatCompletions(d))
 	})
 
-	// Dashboard read API stays open — this is a public demo/portfolio
-	// deployment, and the read surface only ever shows this single
-	// deployment's own demo traffic (see README's honest-gaps note on
-	// per-tenant read scoping being a real, separate gap from this one).
+	// Signup/login/logout are unauthenticated by nature — they're how a
+	// caller obtains a session in the first place.
+	r.Route("/api/auth", func(ar chi.Router) {
+		ar.Post("/signup", handleSignUp(d))
+		ar.Post("/login", handleLogin(d))
+		ar.Post("/logout", handleLogout(d))
+	})
+
+	// Dashboard read API stays open to anonymous callers — this is a
+	// public demo/portfolio deployment, and an anonymous request only ever
+	// sees this deployment's own demo traffic (tenant_id IS NULL). A
+	// caller presenting a tenant API key or a session token instead sees
+	// only THAT tenant's own data — auth.Identify resolves whichever
+	// identity (if any) the request carries and the handlers below use it
+	// to force the effective scope, rather than trusting a client-supplied
+	// tenant_id query param (previously any caller could view any
+	// tenant's data that way, just by knowing/guessing its ID).
+	//
 	// Write/admin operations are a different story: creating a tenant or
 	// triggering a replay run (which spends real provider credits) must
 	// not be something anyone with the URL can do, so those two require
 	// the operator's own VERIGATE_API_KEY specifically — not a tenant key.
 	r.Route("/api", func(ar chi.Router) {
-		ar.Get("/requests", handleListRequests(d))
-		ar.Get("/evals/summary", handleEvalSummary(d))
-		ar.Get("/evals/recent", handleRecentEvals(d))
-		ar.Get("/tenants", handleListTenants(d))
+		ar.Group(func(gr chi.Router) {
+			gr.Use(auth.Identify(d.Cfg.VerigateAPIKey, d.Store, d.Store))
+			gr.Get("/requests", handleListRequests(d))
+			gr.Get("/evals/summary", handleEvalSummary(d))
+			gr.Get("/evals/recent", handleRecentEvals(d))
+			gr.Get("/tenants", handleListTenants(d))
+			gr.Get("/me", handleMe(d))
+			gr.Post("/tenant/regenerate-key", handleRegenerateKey(d))
+		})
 		ar.Get("/providers", handleProviderStatus(d))
 
 		ar.Group(func(admin chi.Router) {
@@ -244,9 +265,16 @@ func handleChatCompletions(d Deps) http.HandlerFunc {
 
 func handleListRequests(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// ?tenant_id= scopes the view to one tenant's traffic; omitted (the
-		// default dashboard view) shows every tenant's requests together.
-		reqs, err := d.Store.ListRequests(r.Context(), r.URL.Query().Get("tenant_id"), 50)
+		scope := auth.ScopeFromContext(r.Context())
+		// Only the admin key's unscoped view may still target a specific
+		// tenant via ?tenant_id= — a tenant/session-scoped caller's own
+		// TenantID always wins, regardless of what they pass here.
+		if scope.All {
+			if id := r.URL.Query().Get("tenant_id"); id != "" {
+				scope = store.Scope{TenantID: id}
+			}
+		}
+		reqs, err := d.Store.ListRequests(r.Context(), scope, 50)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -260,7 +288,8 @@ func handleListRequests(d Deps) http.HandlerFunc {
 
 func handleEvalSummary(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sum, err := d.Store.RegressionSummary(r.Context(), "", // "" = across all rubrics, for the dashboard's overall banner
+		scope := auth.ScopeFromContext(r.Context())
+		sum, err := d.Store.RegressionSummary(r.Context(), scope, "", // "" = across all rubrics, for the dashboard's overall banner
 			d.Cfg.RegressionWindow, d.Cfg.RegressionBaselineWindow,
 			d.Cfg.RegressionZThreshold, d.Cfg.RegressionMinScore)
 		if err != nil {
@@ -286,7 +315,8 @@ func handleEvalSummary(d Deps) http.HandlerFunc {
 
 func handleRecentEvals(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		evals, err := d.Store.RecentEvals(r.Context(), 30)
+		scope := auth.ScopeFromContext(r.Context())
+		evals, err := d.Store.RecentEvals(r.Context(), scope, 30)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -298,17 +328,175 @@ func handleRecentEvals(d Deps) http.HandlerFunc {
 	}
 }
 
+// handleListTenants scopes by caller the same way the request/eval reads
+// do: the admin key sees every tenant (its existing operator view,
+// unchanged); a tenant/session-scoped caller sees only their own tenant;
+// an anonymous caller sees none — tenant names/rate limits are account
+// metadata, not public demo data.
 func handleListTenants(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tenants, err := d.Store.ListTenants(r.Context())
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
+		scope := auth.ScopeFromContext(r.Context())
+
+		var tenants []store.Tenant
+		switch {
+		case scope.All:
+			var err error
+			tenants, err = d.Store.ListTenants(r.Context())
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+		case scope.TenantID != "":
+			tenant, err := d.Store.GetTenantByID(r.Context(), scope.TenantID)
+			if err != nil && !errors.Is(err, store.ErrTenantNotFound) {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			if tenant != nil {
+				tenants = []store.Tenant{*tenant}
+			}
 		}
 		if tenants == nil {
 			tenants = []store.Tenant{}
 		}
 		writeJSON(w, http.StatusOK, tenants)
+	}
+}
+
+// handleSignUp is the self-serve equivalent of the admin-only
+// handleCreateTenant: it creates a user, a tenant owned by that user, and
+// a logged-in session together, and returns the plaintext API key (shown
+// only here, same one-time contract as handleCreateTenant) plus a session
+// token so the browser is immediately logged in.
+func handleSignUp(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Email      string `json:"email"`
+			Password   string `json:"password"`
+			TenantName string `json:"tenant_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		if body.Email == "" || body.Password == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email and password are required"})
+			return
+		}
+		if len(body.Password) < 8 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password must be at least 8 characters"})
+			return
+		}
+		if body.TenantName == "" {
+			body.TenantName = body.Email
+		}
+
+		user, tenant, apiKey, sessionToken, err := d.Store.SignUp(r.Context(), body.Email, body.Password, body.TenantName)
+		if errors.Is(err, store.ErrEmailTaken) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "an account with that email already exists"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"user":          user,
+			"tenant":        tenant,
+			"api_key":       apiKey,
+			"session_token": sessionToken,
+		})
+	}
+}
+
+func handleLogin(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+
+		user, tenant, err := d.Store.VerifyLogin(r.Context(), body.Email, body.Password)
+		if errors.Is(err, store.ErrInvalidCredentials) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid email or password"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		sessionToken, err := d.Store.CreateSession(r.Context(), user.ID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"user":          user,
+			"tenant":        tenant,
+			"session_token": sessionToken,
+		})
+	}
+}
+
+// handleLogout is idempotent — deleting an already-invalid or missing
+// token is treated as a successful logout from the caller's point of view.
+func handleLogout(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if token != "" {
+			if err := d.Store.DeleteSession(r.Context(), token); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+// handleMe reports the identity auth.Identify resolved for this request —
+// the frontend calls this on load to know whether a stored session token
+// is still valid and, if so, whose dashboard to render.
+func handleMe(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scope := auth.ScopeFromContext(r.Context())
+		if scope.TenantID == "" {
+			writeJSON(w, http.StatusOK, map[string]any{"user": nil, "tenant": nil})
+			return
+		}
+		tenant, err := d.Store.GetTenantByID(r.Context(), scope.TenantID)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"user": nil, "tenant": nil})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tenant": tenant})
+	}
+}
+
+// handleRegenerateKey issues a fresh API key for the caller's own tenant —
+// the recovery path for a lost key, since the plaintext is otherwise
+// never shown again after creation. Requires a tenant or session identity;
+// the admin key has no tenant of its own to regenerate, so it's rejected
+// here same as an anonymous caller.
+func handleRegenerateKey(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scope := auth.ScopeFromContext(r.Context())
+		if scope.TenantID == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "a tenant or session identity is required"})
+			return
+		}
+		apiKey, err := d.Store.RegenerateTenantKey(r.Context(), scope.TenantID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"api_key": apiKey})
 	}
 }
 

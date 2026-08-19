@@ -15,6 +15,9 @@ export default function LandingNav() {
         <Link href="/docs" className="text-sm text-[color:var(--text-secondary)] transition-colors hover:text-[color:var(--text-primary)]">
           Docs
         </Link>
+        <Link href="/signup" className="text-sm text-[color:var(--text-secondary)] transition-colors hover:text-[color:var(--text-primary)]">
+          Sign up
+        </Link>
         <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
           <Link
             href="/dashboard"
