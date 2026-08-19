@@ -25,6 +25,15 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 
 func (s *Store) Close() { s.pool.Close() }
 
+// ResetDemoData wipes request/eval history so a demo script can seed a
+// clean before/after state — without it, repeated seed runs accumulate
+// history that drags the regression baseline down until the banner stops
+// flipping. Not exposed over HTTP; callers are local dev tooling only.
+func (s *Store) ResetDemoData(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, "TRUNCATE TABLE evals, requests RESTART IDENTITY CASCADE")
+	return err
+}
+
 type RequestRecord struct {
 	ID             string    `json:"id"`
 	CreatedAt      time.Time `json:"created_at"`

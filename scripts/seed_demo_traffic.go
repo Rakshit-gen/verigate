@@ -45,6 +45,23 @@ func main() {
 	// vice versa, so this can't be hardcoded.
 	chatModel := getenv("CHAT_MODEL_DEFAULT", "gpt-4o-mini")
 
+	ctx := context.Background()
+	st, err := store.New(ctx, dbURL)
+	if err != nil {
+		fmt.Printf("could not connect to postgres: %v\n", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+
+	// Without this, repeated runs (across dev sessions, or a re-run mid-demo)
+	// pile onto prior seed data — the regression baseline drags down along
+	// with it, and eventually the banner stops flipping red at all.
+	fmt.Println("phase 0/2: resetting local demo data (requests + evals)...")
+	if err := st.ResetDemoData(ctx); err != nil {
+		fmt.Printf("  could not reset demo data: %v\n", err)
+		os.Exit(1)
+	}
+
 	fmt.Printf("phase 1/2: sending normal traffic through the real gateway (model=%s)...\n", chatModel)
 	client := &http.Client{Timeout: 30 * time.Second}
 	for _, p := range goodPrompts {
@@ -72,14 +89,6 @@ func main() {
 	}
 
 	fmt.Println("phase 2/2: injecting bad responses directly to trigger the regression banner...")
-	ctx := context.Background()
-	st, err := store.New(ctx, dbURL)
-	if err != nil {
-		fmt.Printf("  could not connect to postgres directly: %v\n", err)
-		os.Exit(1)
-	}
-	defer st.Close()
-
 	badResponses := []struct{ prompt, response string }{
 		{"What's the capital of France?", "Bananas are a good source of potassium and grow on trees in tropical climates."},
 		{"Explain what a hash map is.", "asdkjalksjd 12312 !!! hash map hash map hash map error error"},
