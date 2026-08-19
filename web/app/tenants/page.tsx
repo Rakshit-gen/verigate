@@ -4,31 +4,24 @@ import useSWR from "swr";
 import { fetchTenants } from "@/lib/api";
 import CreateTenantForm from "@/components/CreateTenantForm";
 import TenantsTable from "@/components/TenantsTable";
-import Nav from "@/components/Nav";
+import AppHeader from "@/components/AppHeader";
 
 export default function TenantsPage() {
   const { data: tenants, mutate } = useSWR("tenants", fetchTenants);
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-6 py-10">
-      <header className="mb-8 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-100">
-            Tenants<span className="text-teal-400">.</span>
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Per-tenant API keys and rate limits — each key is independent, none can starve another.
-          </p>
-        </div>
-        <Nav />
-      </header>
+    <main className="mx-auto min-h-screen max-w-6xl px-6 py-10">
+      <AppHeader
+        title="Tenants"
+        subtitle="Per-tenant API keys and rate limits — each key is independent, none can starve another."
+      />
 
-      <section className="mb-8">
+      <section className="animate-fade-in-up mb-8">
         <CreateTenantForm onCreated={() => mutate()} />
       </section>
 
-      <section>
-        <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">
+      <section className="animate-fade-in-up" style={{ animationDelay: "80ms" }}>
+        <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-[color:var(--text-tertiary)]">
           Existing tenants ({tenants?.length ?? 0})
         </h2>
         <TenantsTable tenants={tenants ?? []} />

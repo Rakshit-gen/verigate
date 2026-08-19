@@ -1,23 +1,122 @@
 @import "tailwindcss";
 
-/* Verigate commits to one look: a dark, infra-tool aesthetic (Grafana/
-   Datadog-adjacent) — this is a monitoring dashboard, not a marketing
-   page, and a fixed dark ground keeps the eval chart/status colors legible
-   without a light-mode variant to also maintain tonight. */
+/* Verigate commits to one look: a dark, infra-tool aesthetic — this is a
+   monitoring dashboard, not a marketing page. Palette validated with the
+   dataviz skill's CVD/contrast checker against this exact dark surface
+   (#0a0e14): categorical chart series (--series-groundedness /
+   --series-format) pass lightness-band + CVD-separation + normal-vision
+   floor + contrast; status colors are the skill's reserved, never-themed
+   status scale, kept structurally distinct from the two chart series so
+   neither role is ever confused for the other. */
 :root {
-  --background: #020617;
-  --foreground: #e2e8f0;
+  /* surfaces — a deliberately blue-black ground, not generic slate, with
+     each step just distinct enough to read as "lifted" without a hard edge */
+  --bg: #0a0e14;
+  --surface-1: #0d121a;
+  --surface-2: #10161f;
+  --surface-3: #161d28;
+  --border: #1e2530;
+  --border-soft: #171d27;
+
+  /* text */
+  --text-primary: #e6eaf0;
+  --text-secondary: #8b93a7;
+  --text-tertiary: #5a6275;
+
+  /* brand accent — UI chrome only (buttons, links, focus rings, the live
+     "verigate is grading traffic" identity). Never used as a chart-series
+     color: that role is validated separately below. */
+  --accent: #2dd4bf;
+  --accent-soft: rgba(45, 212, 191, 0.12);
+  --accent-border: rgba(45, 212, 191, 0.3);
+
+  /* chart series — validated: lightness band + CVD ΔE 18.9 (deutan) / 6.3
+     (tritan, floor band — mitigated by the chart's always-on legend) /
+     normal-vision ΔE 23.3, contrast >=3:1 on --bg. Fixed order, two slots. */
+  --series-groundedness: #0d9488;
+  --series-format: #6366f1;
+
+  /* status — reserved scale, never reused for series identity. Always
+     paired with an icon/label in UI, never color alone. */
+  --status-good: #0ca30c;
+  --status-good-bg: rgba(12, 163, 12, 0.12);
+  --status-good-border: rgba(12, 163, 12, 0.32);
+  --status-warning: #fab219;
+  --status-warning-bg: rgba(250, 178, 25, 0.12);
+  --status-warning-border: rgba(250, 178, 25, 0.32);
+  --status-critical: #d03b3b;
+  --status-critical-bg: rgba(208, 59, 59, 0.14);
+  --status-critical-border: rgba(208, 59, 59, 0.34);
+  --status-info: #6366f1;
+  --status-info-bg: rgba(99, 102, 241, 0.12);
+  --status-info-border: rgba(99, 102, 241, 0.3);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--bg);
+  --color-foreground: var(--text-primary);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+* {
+  border-color: var(--border);
+}
+
+html {
+  color-scheme: dark;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse 1200px 600px at 15% -10%, rgba(45, 212, 191, 0.06), transparent 60%),
+    radial-gradient(ellipse 900px 500px at 100% 0%, rgba(99, 102, 241, 0.05), transparent 55%);
+  background-attachment: fixed;
+  color: var(--text-primary);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+/* thin, quiet scrollbars — a detail most dashboards skip */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up {
+    animation: none;
+  }
 }

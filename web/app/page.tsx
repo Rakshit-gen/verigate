@@ -5,7 +5,8 @@ import { fetchRequests, fetchEvalSummary, fetchRecentEvals } from "@/lib/api";
 import RegressionBanner from "@/components/RegressionBanner";
 import EvalTrendChart from "@/components/EvalTrendChart";
 import RequestsTable from "@/components/RequestsTable";
-import Nav from "@/components/Nav";
+import StatTiles from "@/components/StatTiles";
+import AppHeader from "@/components/AppHeader";
 
 const POLL_MS = 4000;
 
@@ -15,32 +16,26 @@ export default function DashboardPage() {
   const { data: evals } = useSWR("recent-evals", fetchRecentEvals, { refreshInterval: POLL_MS });
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-6 py-10">
-      <header className="mb-8 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-100">
-            verigate<span className="text-teal-400">.</span>
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            An LLM gateway that grades its own traffic as it flows through.
-          </p>
-        </div>
-        <Nav />
-      </header>
+    <main className="mx-auto min-h-screen max-w-6xl px-6 py-10">
+      <AppHeader title="Verigate" subtitle="An LLM gateway that grades its own traffic as it flows through." />
 
-      <section className="mb-6">
+      <section className="animate-fade-in-up mb-6">
+        <StatTiles requests={requests ?? []} />
+      </section>
+
+      <section className="animate-fade-in-up mb-6" style={{ animationDelay: "60ms" }}>
         <RegressionBanner summary={summary} />
       </section>
 
-      <section className="mb-8">
-        <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">
-          Eval score trend (last {evals?.length ?? 0} samples)
+      <section className="animate-fade-in-up mb-8" style={{ animationDelay: "120ms" }}>
+        <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-[color:var(--text-tertiary)]">
+          Eval score trend — last {evals?.length ?? 0} samples
         </h2>
         <EvalTrendChart evals={evals ?? []} />
       </section>
 
-      <section>
-        <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">
+      <section className="animate-fade-in-up" style={{ animationDelay: "180ms" }}>
+        <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-[color:var(--text-tertiary)]">
           Recent requests
         </h2>
         <RequestsTable requests={requests ?? []} />

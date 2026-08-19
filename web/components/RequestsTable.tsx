@@ -14,103 +14,128 @@ function toolCallNames(toolCallsJSON: string): string[] {
   }
 }
 
+function Badge({ children, tone }: { children: React.ReactNode; tone: "info" | "warning" | "critical" | "accent" }) {
+  const styles = {
+    info: { bg: "var(--status-info-bg)", border: "var(--status-info-border)", fg: "var(--status-info)" },
+    warning: { bg: "var(--status-warning-bg)", border: "var(--status-warning-border)", fg: "var(--status-warning)" },
+    critical: { bg: "var(--status-critical-bg)", border: "var(--status-critical-border)", fg: "var(--status-critical)" },
+    accent: { bg: "var(--accent-soft)", border: "var(--accent-border)", fg: "var(--accent)" },
+  }[tone];
+  return (
+    <span
+      className="whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium"
+      style={{ background: styles.bg, borderColor: styles.border, color: styles.fg }}
+    >
+      {children}
+    </span>
+  );
+}
+
 function Flags({ r }: { r: RequestRecord }) {
   const names = toolCallNames(r.tool_calls);
   const badges: React.ReactNode[] = [];
 
   if (r.pii_redacted) {
     badges.push(
-      <span key="pii" title="PII/secrets redacted before storage" className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-xs text-indigo-300">
+      <Badge key="pii" tone="info">
         PII redacted
-      </span>
+      </Badge>
     );
   }
   if (r.injection_score >= 0.5) {
     badges.push(
-      <span key="inj" title={`Injection-risk score ${r.injection_score.toFixed(2)}`} className="rounded-full bg-red-500/15 px-2 py-0.5 text-xs text-red-300">
-        injection risk {r.injection_score.toFixed(2)}
-      </span>
+      <Badge key="inj" tone="critical">
+        injection {r.injection_score.toFixed(2)}
+      </Badge>
     );
   } else if (r.injection_score > 0) {
     badges.push(
-      <span key="inj" title={`Injection-risk score ${r.injection_score.toFixed(2)}`} className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300">
+      <Badge key="inj" tone="warning">
         injection {r.injection_score.toFixed(2)}
-      </span>
+      </Badge>
     );
   }
   for (const name of names) {
     badges.push(
-      <span key={"tool-" + name} className="rounded-full bg-teal-500/15 px-2 py-0.5 font-mono text-xs text-teal-300">
-        🔧 {name}
-      </span>
+      <Badge key={"tool-" + name} tone="accent">
+        <span className="font-mono">⚙ {name}</span>
+      </Badge>
     );
   }
 
-  if (badges.length === 0) return <span className="text-xs text-slate-700">—</span>;
+  if (badges.length === 0) return <span className="text-xs text-[color:var(--text-tertiary)]">—</span>;
   return <div className="flex flex-wrap gap-1">{badges}</div>;
 }
 
 export default function RequestsTable({ requests }: { requests: RequestRecord[] }) {
   if (requests.length === 0) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-slate-800 bg-slate-900/50 text-sm text-slate-500">
+      <div className="flex h-40 items-center justify-center rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-1)] text-sm text-[color:var(--text-secondary)]">
         No requests logged yet. Point a client at{" "}
-        <code className="mx-1 rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs">/v1/chat/completions</code>
+        <code className="mx-1 rounded bg-[color:var(--surface-2)] px-1.5 py-0.5 font-mono text-xs">
+          /v1/chat/completions
+        </code>
         to see traffic here.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-800">
+    <div className="overflow-x-auto rounded-xl border border-[color:var(--border)]">
       <table className="w-full text-left text-sm">
-        <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
+        <thead className="bg-[color:var(--surface-2)] text-[11px] uppercase tracking-wider text-[color:var(--text-tertiary)]">
           <tr>
-            <th className="px-4 py-2 font-medium">Time</th>
-            <th className="px-4 py-2 font-medium">Model</th>
-            <th className="px-4 py-2 font-medium">Prompt</th>
-            <th className="px-4 py-2 font-medium">Flags</th>
-            <th className="px-4 py-2 font-medium text-right">Latency</th>
-            <th className="px-4 py-2 font-medium text-center">Cache</th>
-            <th className="px-4 py-2 font-medium text-right">Tokens</th>
-            <th className="px-4 py-2 font-medium text-right">Cost</th>
-            <th className="px-4 py-2 font-medium text-center">Status</th>
+            <th className="px-4 py-2.5 font-medium">Time</th>
+            <th className="px-4 py-2.5 font-medium">Model</th>
+            <th className="px-4 py-2.5 font-medium">Prompt</th>
+            <th className="px-4 py-2.5 font-medium">Flags</th>
+            <th className="px-4 py-2.5 font-medium text-right">Latency</th>
+            <th className="px-4 py-2.5 font-medium text-center">Cache</th>
+            <th className="px-4 py-2.5 font-medium text-right">Tokens</th>
+            <th className="px-4 py-2.5 font-medium text-right">Cost</th>
+            <th className="px-4 py-2.5 font-medium text-center">Status</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-800">
+        <tbody className="divide-y divide-[color:var(--border-soft)]">
           {requests.map((r) => (
-            <tr key={r.id} className="hover:bg-slate-900/60">
-              <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-slate-500">
+            <tr key={r.id} className="bg-[color:var(--surface-1)] transition-colors hover:bg-[color:var(--surface-3)]">
+              <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-[color:var(--text-tertiary)]">
                 {new Date(r.created_at).toLocaleTimeString()}
               </td>
-              <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-teal-300">{r.model}</td>
-              <td className="px-4 py-2 text-slate-300">{truncate(r.prompt)}</td>
-              <td className="px-4 py-2">
+              <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-[color:var(--accent)]">{r.model}</td>
+              <td className="px-4 py-2.5 text-[color:var(--text-secondary)]">{truncate(r.prompt)}</td>
+              <td className="px-4 py-2.5">
                 <Flags r={r} />
               </td>
-              <td className="whitespace-nowrap px-4 py-2 text-right font-mono text-xs tabular-nums text-slate-400">
+              <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-xs tabular-nums text-[color:var(--text-secondary)]">
                 {r.latency_ms}ms
               </td>
-              <td className="px-4 py-2 text-center">
+              <td className="px-4 py-2.5 text-center">
                 <span
-                  className={`rounded-full px-2 py-0.5 text-xs ${
-                    r.cache_hit ? "bg-teal-500/15 text-teal-300" : "bg-slate-800 text-slate-500"
-                  }`}
+                  className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                  style={
+                    r.cache_hit
+                      ? { background: "var(--accent-soft)", color: "var(--accent)" }
+                      : { background: "var(--surface-3)", color: "var(--text-tertiary)" }
+                  }
                 >
                   {r.cache_hit ? "hit" : "miss"}
                 </span>
               </td>
-              <td className="whitespace-nowrap px-4 py-2 text-right font-mono text-xs tabular-nums text-slate-400">
+              <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-xs tabular-nums text-[color:var(--text-secondary)]">
                 {r.tokens_in}→{r.tokens_out}
               </td>
-              <td className="whitespace-nowrap px-4 py-2 text-right font-mono text-xs tabular-nums text-slate-400">
+              <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-xs tabular-nums text-[color:var(--text-secondary)]">
                 ${r.cost_usd.toFixed(5)}
               </td>
-              <td className="px-4 py-2 text-center">
+              <td className="px-4 py-2.5 text-center">
                 <span
-                  className={`rounded-full px-2 py-0.5 text-xs ${
-                    r.status === "ok" ? "bg-slate-800 text-slate-400" : "bg-red-500/15 text-red-300"
-                  }`}
+                  className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                  style={
+                    r.status === "ok"
+                      ? { background: "var(--surface-3)", color: "var(--text-secondary)" }
+                      : { background: "var(--status-critical-bg)", color: "var(--status-critical)" }
+                  }
                 >
                   {r.status}
                 </span>

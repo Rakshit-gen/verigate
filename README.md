@@ -83,6 +83,8 @@ Covers: statistical regression detection and tenant creation/lookup (real integr
 
 `/` (requests, eval trend, regression status), `/tenants` (create/list tenants), `/replay` (model-migration comparisons), `/providers` (live circuit-breaker/latency state) — all backed by real endpoints, no mock data.
 
+Design system: a custom dark palette (not default Tailwind slate) with the two chart series colors run through a CVD/contrast validator against this app's actual surface color before being used, rather than picked by eye — see `docs/ARCHITECTURE.md` §12. KPI stat tiles, a real brand mark, and consistent tokens (`web/app/globals.css`) across all four pages.
+
 ## What's here vs. what's next
 
 This is a real, running system: a gateway with exact-match + semantic caching shared across streaming and non-streaming traffic; request logging with PII redaction and injection-risk scoring; async LLM-judge evaluation with statistical regression detection and tool-call grading; a live dashboard across four pages; real OTel instrumentation; two genuinely different provider adapters (OpenAI-compatible and Anthropic) automatically chained behind a circuit breaker with dynamic latency-based reordering when both are configured; per-tenant API keys, rate limits, and scoped dashboard queries; and a replay/diff tool for model-migration decisions, usable from the CLI or the dashboard.
