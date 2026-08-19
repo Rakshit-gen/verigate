@@ -51,19 +51,26 @@ func New(d Deps) http.Handler {
 		gr.Post("/v1/chat/completions", handleChatCompletions(d))
 	})
 
-	// Dashboard read API. Unauthenticated tonight — this is a local-only
-	// demo surface, not a route real client traffic ever hits. Add auth
-	// here before deploying anywhere reachable off localhost — tenant
-	// creation in particular is an admin operation and must not stay
-	// open once this is reachable off localhost.
+	// Dashboard read API stays open — this is a public demo/portfolio
+	// deployment, and the read surface only ever shows this single
+	// deployment's own demo traffic (see README's honest-gaps note on
+	// per-tenant read scoping being a real, separate gap from this one).
+	// Write/admin operations are a different story: creating a tenant or
+	// triggering a replay run (which spends real provider credits) must
+	// not be something anyone with the URL can do, so those two require
+	// the operator's own VERIGATE_API_KEY specifically — not a tenant key.
 	r.Route("/api", func(ar chi.Router) {
 		ar.Get("/requests", handleListRequests(d))
 		ar.Get("/evals/summary", handleEvalSummary(d))
 		ar.Get("/evals/recent", handleRecentEvals(d))
 		ar.Get("/tenants", handleListTenants(d))
-		ar.Post("/tenants", handleCreateTenant(d))
 		ar.Get("/providers", handleProviderStatus(d))
-		ar.Post("/replay", handleReplay(d))
+
+		ar.Group(func(admin chi.Router) {
+			admin.Use(auth.AdminOnly(d.Cfg.VerigateAPIKey))
+			admin.Post("/tenants", handleCreateTenant(d))
+			admin.Post("/replay", handleReplay(d))
+		})
 	})
 
 	return r

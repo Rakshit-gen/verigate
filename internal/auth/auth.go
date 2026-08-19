@@ -67,3 +67,21 @@ func Middleware(expectedKey string, tenants TenantLookup) func(http.Handler) htt
 		})
 	}
 }
+
+// AdminOnly accepts only the static VERIGATE_API_KEY — unlike Middleware,
+// it does not accept per-tenant keys. Use it for operator-level actions
+// (creating tenants, triggering a replay run) that must not be something
+// any customer's own API key can do.
+func AdminOnly(expectedKey string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			header := r.Header.Get("Authorization")
+			key := strings.TrimPrefix(header, "Bearer ")
+			if key == "" || key != expectedKey {
+				http.Error(w, `{"error":"invalid or missing admin API key"}`, http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
